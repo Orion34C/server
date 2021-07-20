@@ -65,19 +65,19 @@ from distutils.dir_util import copy_tree
 # incorrectly load the other version of the openvino libraries.
 #
 TRITON_VERSION_MAP = {
-    '2.13.0dev':
-      ('21.08dev',   # triton container
-       '21.06',      # upstream container
-       '1.8.0',      # ORT
-       '2021.2.200', # ORT OpenVINO
-       '2021.2')     # Standalone OpenVINO
+    '2.13.0dev': (
+        '21.08dev',  # triton container
+        '21.06',  # upstream container
+        '1.8.0',  # ORT
+        '2021.2.200',  # ORT OpenVINO
+        '2021.2')  # Standalone OpenVINO
 }
 
 EXAMPLE_BACKENDS = ['identity', 'square', 'repeat']
 CORE_BACKENDS = ['tensorrt', 'ensemble']
 NONCORE_BACKENDS = [
     'tensorflow1', 'tensorflow2', 'onnxruntime', 'python', 'dali', 'pytorch',
-    'openvino', 'fil'
+    'openvino', 'fil', 'fastertransformer'
 ]
 EXAMPLE_REPOAGENTS = ['checksum']
 FLAGS = None
@@ -340,6 +340,8 @@ def backend_cmake_args(images, components, be, install_dir, library_paths):
         args = pytorch_cmake_args(images)
     elif be == 'fil':
         args = fil_cmake_args(images)
+    elif be == 'fastertransformer':
+        args = []
     elif be in EXAMPLE_BACKENDS:
         args = []
     else:
@@ -636,6 +638,7 @@ def create_dockerfile_linux(ddir, dockerfile_name, argmap, backends, repoagents,
 #
 ARG TRITON_VERSION={}
 ARG TRITON_CONTAINER_VERSION={}
+
 ARG BASE_IMAGE={}
 ARG BUILD_IMAGE=tritonserver_build
 
@@ -1251,7 +1254,22 @@ if __name__ == '__main__':
             FLAGS.version = vfile.readline().strip()
 
     log('version {}'.format(FLAGS.version))
+
+    # Determine the default repo-tag that should be used for images,
+    # backends and repo-agents if a repo-tag is not given
+    # explicitly. For release branches we use the release branch as
+    # the default, otherwise we use 'main'.
     default_repo_tag = 'main'
+    cver = FLAGS.container_version
+    if cver is None:
+        if FLAGS.version not in TRITON_VERSION_MAP:
+            fail(
+                'unable to determine default repo-tag, container version not known for {}'
+                .format(FLAGS.version))
+        cver = TRITON_VERSION_MAP[FLAGS.version][0]
+    if not cver.endswith('dev'):
+        default_repo_tag = 'r' + cver
+    log('default repo-tag: {}'.format(default_repo_tag))
 
     # For other versions use the TRITON_VERSION_MAP unless explicitly
     # given.
@@ -1263,10 +1281,6 @@ if __name__ == '__main__':
         log('container version {}'.format(FLAGS.container_version))
         log('upstream container version {}'.format(
             FLAGS.upstream_container_version))
-
-        # Determine the default <repo-tag> based on container version.
-        if not FLAGS.container_version.endswith('dev'):
-            default_repo_tag = 'r' + FLAGS.container_version
 
     # Initialize map of backends to build and repo-tag for each.
     backends = {}
